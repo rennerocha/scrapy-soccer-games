@@ -6,19 +6,19 @@ from soccer_games.items import SoccerGamesItem
 def tratar_hora(hora):
     # Deixar data no padrão do projeto
     if not hora:
-        return '00:00'
+        return "00:00"
     return hora
 
 
 def tratar_data(data):
     if not data:
-        return '00/00/0000'
+        return "00/00/0000"
     return data
 
 
 def rodada_jogo(nome_campeonato, numero_jogo, numero_jogos=10):
     # Usa o número do jogo para descobrir de qual rodada é. O numero_jogos é quantidade de jogos por rodada do campeonato.
-    if 'Copa do Nordeste' in nome_campeonato:
+    if "Copa do Nordeste" in nome_campeonato:
         numero_jogos = 8
     rodada = numero_jogo // numero_jogos
     if numero_jogo % numero_jogos != 0:
@@ -26,81 +26,75 @@ def rodada_jogo(nome_campeonato, numero_jogo, numero_jogos=10):
     return rodada
 
 
-def tratar_local(local):
-    local = local[0].split(' - ')
-    if 'a definir' in local[0].lower():
+def obter_local(response):
+    local = response.xpath(
+        "//strong[contains(text(), 'Local')]/following-sibling::span/text()"
+    ).get()
+
+    local = local.split(" - ")
+    if "a definir" in local[0].lower():
         local *= 3
+
     return local
 
 
-def tratar_nome_campeonato(link_nome):
-    if link_nome == 'campeonato-brasileiro-serie-a':
-        return 'Campeonato Brasileiro - Série A'
-    if link_nome == 'campeonato-brasileiro-serie-b':
-        return 'Campeonato Brasileiro - Série B'
-    if link_nome == 'campeonato-brasileiro-serie-c':
-        return 'Campeonato Brasileiro - Série C'
-    if link_nome == 'copa-nordeste-masculino':
-        return 'Copa do Nordeste - Única'
-
-
 serie_a = [
-    f'https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-a/2022/00{i+1}'
+    f"https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-a/2022/00{i+1}"
     for i in range(380)
 ]
 serie_b = [
-    f'https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-b/2022/00{i+1}'
+    f"https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-b/2022/00{i+1}"
     for i in range(380)
 ]
 serie_c = [
-    f'https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-c/2022/00{i+1}'
+    f"https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-c/2022/00{i+1}"
     for i in range(190)
-]
-copa_ne = [
-    f'https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/copa-nordeste-masculino/2022/00{i+1}'
-    for i in range(64)
 ]
 
 
 class CbfGamesSpider(scrapy.Spider):
-    name = 'cbf_games'
-    allowed_domains = ['cbf.com.br']
-    start_urls = copa_ne
+    name = "cbf_games"
+    allowed_domains = ["cbf.com.br"]
 
-    def parse(self, response):
-        """
-        @url https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-a/2022/1
-        @returns items 1
-        @scrapes time_mandante time_visitante data_jogo hora_jogo
-        @scrapes estadio_jogo cidade_jogo estado_jogo numero_jogo
-        """
+    def start_requests(self):
+        for idx in range(64):
+            numero_jogo = idx + 1
+
+            yield scrapy.Request(
+                f"https://www.cbf.com.br/amp/futebol-brasileiro/competicoes/copa-nordeste-masculino/2022/00{numero_jogo}",
+                cb_kwargs={
+                    "numero_jogo": numero_jogo
+                }
+            )
+
+    def parse(self, response, numero_jogo):
         jogo = ItemLoader(item=SoccerGamesItem(), response=response)
+        jogo.add_xpath("nome_campeonato", "//strong/text()[1]")
 
-        local_jogo = tratar_local(
-            response.css('.col-xs-12 span::text').getall()
-        )
-        data_jogo = tratar_data(response.css('.col-xs-6 span::text').get())
-        hora_jogo = tratar_hora(response.css('.col-xs-6 .text-6::text').get())
-        numero_jogo = int(response.url[-3::])
-        nome_campeonato = tratar_nome_campeonato(response.url.split('/')[-3])
-
+        jogo.add_value("numero_jogo", numero_jogo)
         jogo.add_css(
-            'time_mandante', '.jogo-equipe-nome-completo::text', lambda v: v[0]
+            "time_mandante", ".jogo-equipe-nome-completo::text", lambda v: v[0]
         )
         jogo.add_css(
-            'time_visitante',
-            '.jogo-equipe-nome-completo::text',
+            "time_visitante",
+            ".jogo-equipe-nome-completo::text",
             lambda v: v[1],
         )
-        jogo.add_value('estadio_jogo', local_jogo[0])
-        jogo.add_value('cidade_jogo', local_jogo[1])
-        jogo.add_value('estado_jogo', local_jogo[2])
-        jogo.add_value('data_jogo', data_jogo.replace('/', '-'))
-        jogo.add_value('hora_jogo', hora_jogo)
-        jogo.add_value('numero_jogo', numero_jogo)
+
+        local_jogo = obter_local(response)
+        jogo.add_value("estadio_jogo", local_jogo[0])
+        jogo.add_value("cidade_jogo", local_jogo[1])
+        jogo.add_value("estado_jogo", local_jogo[2])
+
+        data_jogo = tratar_data(response.css(".col-xs-6 span::text").get())
+        hora_jogo = tratar_hora(response.css(".col-xs-6 .text-6::text").get())
+
+        jogo.add_value("data_jogo", data_jogo.replace("/", "-"))
+        jogo.add_value("hora_jogo", hora_jogo)
+
         jogo.add_value(
-            'rodada_jogo', rodada_jogo(nome_campeonato, numero_jogo)
+            "rodada_jogo",
+            rodada_jogo(jogo.get_output_value("nome_campeonato"), numero_jogo),
         )
-        jogo.add_value('nome_campeonato', nome_campeonato)
 
         return jogo.load_item()
